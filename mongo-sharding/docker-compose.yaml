@@ -1,0 +1,125 @@
+# Задание 2. Шардирование
+name: mongo-sharding
+services:
+  shard1:
+    container_name: shard1
+    image: dh-mirror.gitverse.ru/mongo:latest
+    #command: mongod --shardsvr --replSet rsShard1 --bind_ip_all         
+    command:
+      [
+        "--shardsvr",
+        "--replSet",
+        "shard1",
+        "--bind_ip_all",
+        "--port",
+        "27017"
+      ]
+    healthcheck:
+      test: [ "CMD", "mongosh", "--host", "localhost:27017", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      start_period: 10s
+    restart: always
+    volumes:
+      - mongodb1_1_data_container:/data/db
+    networks:
+      - mongo-network            
+
+  shard2:
+    container_name: shard2
+    image: dh-mirror.gitverse.ru/mongo:latest
+    # command: mongod --shardsvr --replSet rsShard2 --bind_ip_all
+    command:
+      [
+        "--shardsvr",
+        "--replSet",
+        "shard2",
+        "--bind_ip_all",
+        "--port",
+        "27017"
+      ]
+    healthcheck:
+      test: [ "CMD", "mongosh", "--host", "localhost:27017", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      start_period: 10s
+    restart: always
+    volumes:
+      - mongodb2_1_data_container:/data/db
+    networks:
+      - mongo-network            
+
+  configSrv1:
+    container_name: configSrv1
+    image: dh-mirror.gitverse.ru/mongo:latest
+    #command: mongod --configsvr --replSet rsConfig1 --bind_ip_all
+    command:
+      [
+        "--configsvr",
+        "--replSet", "config_server",
+        "--bind_ip_all",
+        "--port", "27017"
+      ] 
+    healthcheck:
+      test: [ "CMD", "mongosh", "--host", "localhost:27017", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      start_period: 10s
+    restart: always
+    volumes:
+      - configSrv1_data_container:/data/db
+    networks:
+      - mongo-network            
+
+  mongos1:
+    container_name: mongos1
+    image: dh-mirror.gitverse.ru/mongo:latest
+    # command: mongos --configdb rsConfig/configsvr1:27017,configsvr2:27017,configsvr3:27017 --bind_ip_all
+    # command: mongos --configdb rsConfig/configsvr1:27017 --bind_ip_all
+    command:
+      [
+        "mongos",
+        "--configdb", 
+        "config_server/configSrv1:27017",
+        "--bind_ip_all",
+        "--port",
+        "27017"
+      ]
+    healthcheck:
+      test: [ "CMD", "mongosh", "--host", "localhost:27017", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      start_period: 10s
+    restart: always
+    depends_on:
+      - configSrv1
+    volumes:
+      - mongos1_data_container:/data/db
+    networks:
+      - mongo-network
+    # ports:            
+    #   - "27117:27017"  # DNAT не нужен т.к. приложение запускается на той же машине
+
+  pymongo_api:
+    container_name: pymongo_api
+    build: 
+      context: api_app
+      dockerfile: Dockerfile
+    image: kazhem/pymongo_api:1.0.0
+    restart: always
+    networks:
+      - mongo-network
+    depends_on:
+      - mongos1
+    ports:
+      - 8080:8080
+    environment:
+      MONGODB_URL: "mongodb://mongos1"
+      MONGODB_DATABASE_NAME: "somedb"
+
+
+volumes:
+  mongodb1_1_data_container:
+  mongodb2_1_data_container:
+  configSrv1_data_container:
+  mongos1_data_container:
+  
+networks:
+  mongo-network:
+    driver: bridge  
